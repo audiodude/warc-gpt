@@ -39,7 +39,6 @@ def ingest(batch_size) -> None:
     """
     environ = os.environ
 
-    chunk_prefix = environ["VECTOR_SEARCH_CHUNK_PREFIX"]
 
     warc_files = []
     embedding_model = None
@@ -103,129 +102,15 @@ def ingest(batch_size) -> None:
     #
     for warc_file in warc_files:
         click.echo(f"🗜️ Ingesting HTML and PDF records from {warc_file}")
-
         with open(warc_file, "rb") as stream:
             for record in ArchiveIterator(stream):
-                record_data = dict(WARC_RECORD_DATA)
+                return_tuple = process_warc_record(record, warc_file, text_splitter, chroma_collection, embedding_model, multi_chunk_mode, encoding_timings, batch_size)
+                if return_tuple is not None:
+                    total_embeddings += return_tuple[0]
+                    total_records += return_tuple[1]
+                    multi_chunk_mode = return_tuple[2]
+                    encoding_timings = return_tuple[3]
 
-                if record.rec_type != "response":
-                    continue
-
-                # Extract metadata
-                rec_headers = record.rec_headers
-                http_headers = record.http_headers
-
-                if not rec_headers or not http_headers:
-                    continue
-
-                record_data["warc_filename"] = os.path.basename(warc_file)
-                record_data["warc_record_id"] = rec_headers.get_header("WARC-Record-ID")
-                record_data["warc_record_date"] = rec_headers.get_header("WARC-Date")
-                record_data["warc_record_target_uri"] = rec_headers.get_header("WARC-Target-URI")
-                record_data["warc_record_content_type"] = http_headers.get_header("Content-Type")
-                record_data["warc_record_text"] = ""
-
-                # Skip incomplete records
-                if (
-                    not record_data["warc_record_id"]
-                    or not record_data["warc_record_date"]
-                    or not record_data["warc_record_target_uri"]
-                    or not record_data["warc_record_content_type"]
-                ):
-                    continue
-
-                # Skip records that are not HTTP 2XX
-                if http_headers.get_statuscode().startswith("2") is not True:
-                    continue
-
-                #
-                # Extract text from text/html
-                #
-                if record_data["warc_record_content_type"].startswith("text/html"):
-                    try:
-                        response_as_text = record.content_stream().read().decode("utf-8")
-
-                        soup = BeautifulSoup(response_as_text, "html.parser")
-
-                        # Skip documents with no body tag
-                        if not soup.body or len(soup.body) < 1:
-                            continue
-
-                        all_text = soup.body.findAll(string=True)
-
-                        for text in all_text:
-                            if text.parent.name in ["script", "style"]:  # No <script> or <style>
-                                continue
-
-                            if isinstance(text, HTMLComment):  # No HTML comments
-                                continue
-
-                            record_data["warc_record_text"] += f"{text} "
-
-                        record_data["warc_record_text"] = record_data["warc_record_text"].strip()
-                    except Exception:
-                        click.echo(
-                            f"- Could not extract text from {record_data['warc_record_target_uri']}"
-                        )
-                        click.echo(traceback.format_exc())
-
-                #
-                # Extract text from PDF
-                #
-                if record_data["warc_record_content_type"].startswith("application/pdf"):
-                    raw = io.BytesIO(record.raw_stream.read())
-                    pdf = PdfReader(raw)
-
-                    for page in pdf.pages:
-                        record_data["warc_record_text"] += page.extract_text()
-
-                #
-                # Stop here if we don't have text, or text contains less than 5 words
-                #
-                if not record_data["warc_record_text"]:
-                    continue
-
-                if len(record_data["warc_record_text"].split()) < 5:
-                    continue
-
-                record_data["warc_record_text"] = record_data["warc_record_text"].strip()
-                total_records += 1
-
-                # Split text into chunks
-                text_chunks = text_splitter.split_text(record_data["warc_record_text"])
-                click.echo(f"{record_data['warc_record_target_uri']} = {len(text_chunks)} chunks.")
-
-                if not text_chunks:
-                    continue
-
-                # Add VECTOR_SEARCH_CHUNK_PREFIX to every chunk
-                text_chunks = [chunk_prefix + chunk for chunk in text_chunks]
-
-                # Generate embeddings and metadata for each chunk
-                (
-                    documents,
-                    ids,
-                    metadatas,
-                    embeddings,
-                    multi_chunk_mode,
-                    encoding_timings
-                ) = chunk_objects(
-                    record_data,
-                    text_chunks,
-                    embedding_model,
-                    multi_chunk_mode,
-                    encoding_timings,
-                    batch_size
-                )
-                total_embeddings += len(embeddings)
-
-                # Store embeddings and metadata
-                chroma_collection.add(
-                    documents=documents,
-                    embeddings=embeddings,
-                    metadatas=metadatas,
-                    ids=ids,
-                )
 
     click.echo(f"Total: {total_embeddings} embeddings from {total_records} HTML/PDF records.")
 
@@ -290,3 +175,133 @@ def chunk_objects(
         ]
 
     return documents, ids, metadatas, embeddings, multi_chunk_mode, encoding_timings
+
+def process_warc_record(record, warc_file, text_splitter, chroma_collection, embedding_model, multi_chunk_mode, encoding_timings, batch_size) -> tuple[int, int, bool, list[float], int]:
+    environ = os.environ
+    chunk_prefix = environ["VECTOR_SEARCH_CHUNK_PREFIX"]
+
+    total_records = 0
+    total_embeddings = 0
+
+    record_data = dict(WARC_RECORD_DATA)
+
+    if record.rec_type != "response":
+        return
+
+    # Extract metadata
+    rec_headers = record.rec_headers
+    http_headers = record.http_headers
+
+    if not rec_headers or not http_headers:
+        return
+
+    record_data["warc_filename"] = os.path.basename(warc_file)
+    record_data["warc_record_id"] = rec_headers.get_header("WARC-Record-ID")
+    record_data["warc_record_date"] = rec_headers.get_header("WARC-Date")
+    record_data["warc_record_target_uri"] = rec_headers.get_header("WARC-Target-URI")
+    record_data["warc_record_content_type"] = http_headers.get_header("Content-Type")
+    record_data["warc_record_text"] = ""
+
+    # Skip incomplete records
+    if (
+        not record_data["warc_record_id"]
+        or not record_data["warc_record_date"]
+        or not record_data["warc_record_target_uri"]
+        or not record_data["warc_record_content_type"]
+    ):
+        return
+
+    # Skip records that are not HTTP 2XX
+    if http_headers.get_statuscode().startswith("2") is not True:
+        return
+
+    #
+    # Extract text from text/html
+    #
+    if record_data["warc_record_content_type"].startswith("text/html"):
+        try:
+            response_as_text = record.content_stream().read().decode("utf-8")
+
+            soup = BeautifulSoup(response_as_text, "html.parser")
+
+            # Skip documents with no body tag
+            if not soup.body or len(soup.body) < 1:
+                return
+
+            all_text = soup.body.findAll(string=True)
+
+            for text in all_text:
+                if text.parent.name in ["script", "style"]:  # No <script> or <style>
+                    continue
+
+                if isinstance(text, HTMLComment):  # No HTML comments
+                    continue
+
+                record_data["warc_record_text"] += f"{text} "
+
+            record_data["warc_record_text"] = record_data["warc_record_text"].strip()
+        except Exception:
+            click.echo(
+                f"- Could not extract text from {record_data['warc_record_target_uri']}"
+            )
+            click.echo(traceback.format_exc())
+
+    #
+    # Extract text from PDF
+    #
+    if record_data["warc_record_content_type"].startswith("application/pdf"):
+        raw = io.BytesIO(record.raw_stream.read())
+        pdf = PdfReader(raw)
+
+        for page in pdf.pages:
+            record_data["warc_record_text"] += page.extract_text()
+
+    #
+    # Stop here if we don't have text, or text contains less than 5 words
+    #
+    if not record_data["warc_record_text"]:
+        return
+
+    if len(record_data["warc_record_text"].split()) < 5:
+        return
+
+    record_data["warc_record_text"] = record_data["warc_record_text"].strip()
+    total_records += 1
+
+    # Split text into chunks
+    text_chunks = text_splitter.split_text(record_data["warc_record_text"])
+    click.echo(f"{record_data['warc_record_target_uri']} = {len(text_chunks)} chunks.")
+
+    if not text_chunks:
+        return
+
+    # Add VECTOR_SEARCH_CHUNK_PREFIX to every chunk
+    text_chunks = [chunk_prefix + chunk for chunk in text_chunks]
+
+    # Generate embeddings and metadata for each chunk
+    (
+        documents,
+        ids,
+        metadatas,
+        embeddings,
+        multi_chunk_mode,
+        encoding_timings
+    ) = chunk_objects(
+        record_data,
+        text_chunks,
+        embedding_model,
+        multi_chunk_mode,
+        encoding_timings,
+        batch_size
+    )
+    total_embeddings += len(embeddings)
+
+    # Store embeddings and metadata
+    chroma_collection.add(
+        documents=documents,
+        embeddings=embeddings,
+        metadatas=metadatas,
+        ids=ids,
+    )
+
+    return (total_embeddings, total_records, multi_chunk_mode, encoding_timings)
