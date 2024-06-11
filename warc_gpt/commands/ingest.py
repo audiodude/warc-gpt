@@ -15,6 +15,7 @@ from bs4 import Comment as HTMLComment
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 from warcio.archiveiterator import ArchiveIterator
+from libzim.reader import Archive
 from langchain.text_splitter import SentenceTransformersTokenTextSplitter
 from flask import current_app
 from time import perf_counter
@@ -39,8 +40,8 @@ def ingest(batch_size) -> None:
     """
     environ = os.environ
 
-
     warc_files = []
+    zim_files = []
     embedding_model = None
     chroma_client = None
     chroma_collection = None
@@ -64,11 +65,21 @@ def ingest(batch_size) -> None:
     warc_files += glob.glob(environ["WARC_FOLDER_PATH"] + "/*.warc.gz", recursive=True)
     warc_files.sort()
 
+    # List ZIM files to process
+    zim_files += glob.glob(environ["ZIM_FOLDER_PATH"] + "/*.zim", recursive=True)
+    zim_files.sort()
+
     if not warc_files:
         click.echo("No WARC files to ingest.")
+
+    if not zim_files:
+        click.echo("No ZIM files to ingest.")
+
+    if not warc_files and not zim_files:
         exit(1)
 
     click.echo(f"{len(warc_files)} WARC files to ingest.")
+    click.echo(f"{len(zim_files)} ZIM files to ingest.")
 
     # Init embedding model
     embedding_model = SentenceTransformer(
@@ -110,6 +121,28 @@ def ingest(batch_size) -> None:
                     total_records += return_tuple[1]
                     multi_chunk_mode = return_tuple[2]
                     encoding_timings = return_tuple[3]
+
+    #
+    # For each ZIM:
+    # - Extract text from HTML records
+    # - Split and generate embeddings for said text
+    # - Save in vector store
+    for zim_file in zim_files:
+        click.echo(f"🗜️ Ingesting HTML records from {zim_file}")
+        zim = Archive(zim_file)
+        if 'Date' in zim.metadata_keys:
+            zim_date = zim.get_metadata('Date').decode('utf-8')
+        else:
+            zim_date = '1970-01-01'
+
+        for i in range(0, zim.all_entry_count):
+            entry = zim._get_entry_by_id(i)
+            return_tuple = process_zim_entry(entry, zim_file, zim_date, zim.uuid, text_splitter, chroma_collection, embedding_model, multi_chunk_mode, encoding_timings, batch_size)
+            if return_tuple is not None:
+                total_embeddings += return_tuple[0]
+                total_records += return_tuple[1]
+                multi_chunk_mode = return_tuple[2]
+                encoding_timings = return_tuple[3]
 
 
     click.echo(f"Total: {total_embeddings} embeddings from {total_records} HTML/PDF records.")
@@ -255,6 +288,102 @@ def process_warc_record(record, warc_file, text_splitter, chroma_collection, emb
 
         for page in pdf.pages:
             record_data["warc_record_text"] += page.extract_text()
+
+    #
+    # Stop here if we don't have text, or text contains less than 5 words
+    #
+    if not record_data["warc_record_text"]:
+        return
+
+    if len(record_data["warc_record_text"].split()) < 5:
+        return
+
+    record_data["warc_record_text"] = record_data["warc_record_text"].strip()
+    total_records += 1
+
+    # Split text into chunks
+    text_chunks = text_splitter.split_text(record_data["warc_record_text"])
+    click.echo(f"{record_data['warc_record_target_uri']} = {len(text_chunks)} chunks.")
+
+    if not text_chunks:
+        return
+
+    # Add VECTOR_SEARCH_CHUNK_PREFIX to every chunk
+    text_chunks = [chunk_prefix + chunk for chunk in text_chunks]
+
+    # Generate embeddings and metadata for each chunk
+    (
+        documents,
+        ids,
+        metadatas,
+        embeddings,
+        multi_chunk_mode,
+        encoding_timings
+    ) = chunk_objects(
+        record_data,
+        text_chunks,
+        embedding_model,
+        multi_chunk_mode,
+        encoding_timings,
+        batch_size
+    )
+    total_embeddings += len(embeddings)
+
+    # Store embeddings and metadata
+    chroma_collection.add(
+        documents=documents,
+        embeddings=embeddings,
+        metadatas=metadatas,
+        ids=ids,
+    )
+
+    return (total_embeddings, total_records, multi_chunk_mode, encoding_timings)
+
+def process_zim_entry(entry, zim_file, zim_date, zim_uuid, text_splitter, chroma_collection, embedding_model, multi_chunk_mode, encoding_timings, batch_size) -> tuple[int, int, bool, list[float], int]:
+    environ = os.environ
+    chunk_prefix = environ["VECTOR_SEARCH_CHUNK_PREFIX"]
+
+    total_records = 0
+    total_embeddings = 0
+
+    record_data = dict(WARC_RECORD_DATA)
+    record_data["warc_filename"] = os.path.basename(zim_file)
+    record_data["warc_record_id"] = f'{zim_uuid}/{entry._index}' 
+    record_data["warc_record_date"] = zim_date
+    record_data["warc_record_target_uri"] = '/'.join(entry.path.split('/')[1:])
+    record_data["warc_record_content_type"] = entry.get_item().mimetype
+    record_data["warc_record_text"] = ""
+
+    #
+    # Extract text from text/html
+    #
+    if record_data["warc_record_content_type"].startswith("text/html"):
+        try:
+            response_as_text = bytes(entry.get_item().content).decode("UTF-8")
+
+            soup = BeautifulSoup(response_as_text, "html.parser")
+
+            # Skip documents with no body tag
+            if not soup.body or len(soup.body) < 1:
+                return
+
+            all_text = soup.body.findAll(string=True)
+
+            for text in all_text:
+                if text.parent.name in ["script", "style"]:  # No <script> or <style>
+                    continue
+
+                if isinstance(text, HTMLComment):  # No HTML comments
+                    continue
+
+                record_data["warc_record_text"] += f"{text} "
+
+            record_data["warc_record_text"] = record_data["warc_record_text"].strip()
+        except Exception:
+            click.echo(
+                f"- Could not extract text from {record_data['warc_record_target_uri']}"
+            )
+            click.echo(traceback.format_exc())
 
     #
     # Stop here if we don't have text, or text contains less than 5 words
