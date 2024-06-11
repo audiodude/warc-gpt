@@ -1579,6 +1579,46 @@ pydantic = ">=1,<3"
 requests = ">=2,<3"
 
 [[package]]
+name = "libzim"
+version = "3.4.0"
+description = "A python-facing API for creating and interacting with ZIM files"
+optional = false
+python-versions = "<3.13,>=3.8"
+files = [
+    {file = "libzim-3.4.0-cp310-cp310-macosx_12_0_arm64.whl", hash = "sha256:4f140702fa15583bac4595fc3e7144a941515dc7e9f995b9a87bf40935a99886"},
+    {file = "libzim-3.4.0-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:1cb4431162c22ad39b102c6009a648eca74a670a91fee5737dd01569b07296f4"},
+    {file = "libzim-3.4.0-cp310-cp310-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:220f91816341246beb09530c583ba8ae2294e0522533bee6f7b931b658be5c1f"},
+    {file = "libzim-3.4.0-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2eeb27cc505fcb00504f14ffd9006662c7d93945d64dae81fe0207f1e7d7cffd"},
+    {file = "libzim-3.4.0-cp310-cp310-musllinux_1_1_aarch64.whl", hash = "sha256:fecf2d3a719d1fed78dcef87305d3601d756a3cc0996f18e9782821c01a43b79"},
+    {file = "libzim-3.4.0-cp310-cp310-musllinux_1_1_x86_64.whl", hash = "sha256:d53fa14568dcc3b68a896c3c9e24be7a51516c6c30e5131cc3eb47c9786b1b81"},
+    {file = "libzim-3.4.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:3f17698a0db89fd67972e1252874efd3903ce5cdc1b9993115b1b36db7ef31b4"},
+    {file = "libzim-3.4.0-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:7c81e97c7cbfd574318199301d7f0f70d44badb0d043f3e6669737e42b9c32e7"},
+    {file = "libzim-3.4.0-cp311-cp311-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5996b5f6e70555e131453db9c060d1fd51613af436a160794f0c0e318a42274d"},
+    {file = "libzim-3.4.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9698684d2b50ac80c0e118dd2f05be0aa3867aef6c7addb5e65bb9787d3f1caf"},
+    {file = "libzim-3.4.0-cp311-cp311-musllinux_1_1_aarch64.whl", hash = "sha256:bd91d478ba7c9bb5fa6e890bc060e9c5c7fa1052227d7b17622830adae9f30ad"},
+    {file = "libzim-3.4.0-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:867d3d009e3e16843cdcaea551a6739c4f0367809b484470c0938c445aa51d0d"},
+    {file = "libzim-3.4.0-cp312-cp312-macosx_12_0_arm64.whl", hash = "sha256:fb0c2387139d92e464c5d073d96f311730b0163c24221a184a4f0e8e41c9ed15"},
+    {file = "libzim-3.4.0-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:aaebba52d5b98b3a553c7cb01b81d99efaa19a8ed1eb8485a01662a48cadfe23"},
+    {file = "libzim-3.4.0-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f66e75571c391315f2715c977828f37da3d1b8fa4d3899344687c49e416f7ec3"},
+    {file = "libzim-3.4.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:976dd07c42e3245a8f740562ca97649e4052286cd39207fef4e61e5f87ef803f"},
+    {file = "libzim-3.4.0-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:a5f94ffe253b671cbe289ae67c5a8dfbf3ec6a2ee4425be0f5a80bc9edd50b9c"},
+    {file = "libzim-3.4.0-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:29fc720623f3925476aa1dd711b9a09ad361442ce292bdb9e80cb1c48ae152bc"},
+    {file = "libzim-3.4.0-cp38-cp38-macosx_12_0_arm64.whl", hash = "sha256:900145487aed489ada2ee8a1cd47d79f73ff01cbc17a51bf94a0eae10fea3bf5"},
+    {file = "libzim-3.4.0-cp38-cp38-macosx_13_0_x86_64.whl", hash = "sha256:ab3a2515c0de3b7ada9ca0829a29902c77e9da12a7fafb7d15f3154a936d094c"},
+    {file = "libzim-3.4.0-cp38-cp38-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bf076d89ad659c948b743854cdc95dfdfb7622a6c3b5fd8a9e29f97df0a8710f"},
+    {file = "libzim-3.4.0-cp38-cp38-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2ab9d8fa1a3f8af134d4849b843a7b099a75f996ded9f3926e42d8eb2e82c989"},
+    {file = "libzim-3.4.0-cp38-cp38-musllinux_1_1_aarch64.whl", hash = "sha256:d688553674c6d140661fd4ff45eff8c790d36c9cfc643f346192cb2d88b01a40"},
+    {file = "libzim-3.4.0-cp38-cp38-musllinux_1_1_x86_64.whl", hash = "sha256:c5157206d805f2c5f374a2d60b9b803e01f5bf96807d8cd5985cbd0774c2275f"},
+    {file = "libzim-3.4.0-cp39-cp39-macosx_12_0_arm64.whl", hash = "sha256:304516ffd723b8959c53212aa687bcd20b397e03c0377192565f51587232ba44"},
+    {file = "libzim-3.4.0-cp39-cp39-macosx_13_0_x86_64.whl", hash = "sha256:f9cffdda6faf19e2f783cafc6107e6761f4f8611453a525e6c71dfc4fb660dd4"},
+    {file = "libzim-3.4.0-cp39-cp39-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:604ec189fd72cf1539d9443b2fc170755571db466f08d93d11a6d3a5cef41f5f"},
+    {file = "libzim-3.4.0-cp39-cp39-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1e43d3240fb0f2238b0a102b035572296275d51bd6341159cb2534bf07826eb3"},
+    {file = "libzim-3.4.0-cp39-cp39-musllinux_1_1_aarch64.whl", hash = "sha256:e987c034b524aafab60115d51e2647721da5e479caf7cf077739d73a636b35b4"},
+    {file = "libzim-3.4.0-cp39-cp39-musllinux_1_1_x86_64.whl", hash = "sha256:b4004e587e016a977844e1a8036df97262128ae5473e15eed1e09e016e0ee811"},
+    {file = "libzim-3.4.0.tar.gz", hash = "sha256:c363de9d0340e657c8ec84088a199e189aeeae202ad81ffce3028285164202af"},
+]
+
+[[package]]
 name = "limits"
 version = "3.12.0"
 description = "Rate limiting utilities"
@@ -4677,5 +4717,5 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 
 [metadata]
 lock-version = "2.0"
-python-versions = "^3.11"
-content-hash = "9b386869297703304d6f32ef89183d66f53c38ffdf3a61c3ea1eb2107e5fc4c3"
+python-versions = "^3.11,<3.13"
+content-hash = "b68c1771bbc7c982b5e2a0c00f469208629fc33b16b5f7eaa4fee497c6660ff9"
