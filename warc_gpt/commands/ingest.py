@@ -2,6 +2,7 @@
 `commands.ingest` module: Controller for the `ingest` CLI command.
 """
 
+from collections import namedtuple
 import os
 import glob
 import traceback
@@ -23,12 +24,15 @@ from statistics import mean
 
 from warc_gpt import WARC_RECORD_DATA
 
+ChromaItem = namedtuple('ChromaItem', ['documents', 'ids', 'metadatas', 'embeddings'])
+
 class Ingester:
     def __init__(self, multi_chunk_mode, batch_size):
         # Init embedding model
         self.embedding_model = SentenceTransformer(
-        os.environ["VECTOR_SEARCH_SENTENCE_TRANSFORMER_MODEL"],
-        device=os.environ["VECTOR_SEARCH_SENTENCE_TRANSFORMER_DEVICE"],)
+            os.environ["VECTOR_SEARCH_SENTENCE_TRANSFORMER_MODEL"],
+            device=os.environ["VECTOR_SEARCH_SENTENCE_TRANSFORMER_DEVICE"],
+        )
     
         # Init text splitter function
         self.text_splitter = SentenceTransformersTokenTextSplitter(
@@ -130,24 +134,11 @@ class Ingester:
         text_chunks = [chunk_prefix + chunk for chunk in text_chunks]
 
         # Generate embeddings and metadata for each chunk
-        (
-            documents,
-            ids,
-            metadatas,
-            embeddings
-        ) = self.chunk_objects(
-            record_data,
-            text_chunks
-        )
-        self.total_embeddings += len(embeddings)
+        item = self.chunk_objects(record_data, text_chunks)
+        self.total_embeddings += len(item.embeddings)
 
         # Store embeddings and metadata
-        self.chroma_collection.add(
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids,
-        )
+        self.chroma_collection.add(**item._asdict())
 
     def process_warc_record(self, record, warc_file):
         if record.rec_type != "response":
@@ -184,8 +175,6 @@ class Ingester:
         self._process_record(record_data, lambda: record.content_stream().read().decode("utf-8"), lambda: record.content_stream().read())
 
     def process_zim_entry(self, entry, zim_file, zim_date, zim_uuid):
-        chunk_prefix = os.environ["VECTOR_SEARCH_CHUNK_PREFIX"]
-
         record_data = dict(WARC_RECORD_DATA)
         record_data["warc_filename"] = os.path.basename(zim_file)
         record_data["warc_record_id"] = f'{zim_uuid}/{entry._index}'
@@ -251,7 +240,7 @@ class Ingester:
                 for chunk in text_chunks
             ]
 
-        return documents, ids, metadatas, embeddings
+        return ChromaItem(documents, ids, metadatas, embeddings)
 
 
 @current_app.cli.command("ingest")
