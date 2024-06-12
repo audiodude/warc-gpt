@@ -1,16 +1,35 @@
-# WARC-GPT
+# ZIM-N-WARC-GPT
 
-**WARC + AI:** Experimental Retrieval Augmented Generation Pipeline for Web Archive Collections. 
+This is a fork of [WARC-GPT](https://github.com/harvard-lil/warc-gpt) that adds support for using
+[ZIM files](https://wiki.openzim.org/wiki/OpenZIM) to seed the RAG pipeline. Support for WARC is
+retained. Put your ZIMs in the zim/ folder (and WARCs in warc/).
+
+The ZIM file format stores website content for offline usage. It assembles the normal constituents
+of a website into a single archive, and compresses it so as to make it easier to save, share, and store.
+ZIMs can be read with a [variety of software](https://kiwix.org/en/applications/) on almost any
+platform. They also serve as an archival format, as seen here.
+
+Kiwix also maintains a [library of ZIM files](https://library.kiwix.org/).
+
+You can create your own ZIM using [Zimit](https://zimit.kiwix.org/). Alternately, if you'd like a
+ZIM based on Wikipedia articles or categories, you can use [the WP1 tool](https://wp1.openzim.org/#/).
+
+The remainder of the upstream README is retained below:
+
+---
+
+**WARC + AI:** Experimental Retrieval Augmented Generation Pipeline for Web Archive Collections.
 
 More info:
+
 - <a href="https://lil.law.harvard.edu/blog/2024/02/12/warc-gpt-an-open-source-tool-for-exploring-web-archives-with-ai/">"WARC-GPT: An Open-Source Tool for Exploring Web Archives Using AI"</a>. Feb 12 2024 - _lil.law.harvard.edu_
 
 https://github.com/harvard-lil/warc-gpt/assets/625889/8ea3da4a-62a1-4ffa-a510-ef3e35699237
 
-
 ---
 
-## Summary 
+## Summary
+
 - [Features](#features)
 - [Installation](#installation)
 - [Configuring the application](#configuring-the-application)
@@ -24,6 +43,7 @@ https://github.com/harvard-lil/warc-gpt/assets/625889/8ea3da4a-62a1-4ffa-a510-ef
 ---
 
 ## Features
+
 - Retrieval Augmented Generation pipeline for WARC files
 - Highly customizable, can interact with many different LLMs, providers and embedding models
 - REST API
@@ -35,7 +55,8 @@ https://github.com/harvard-lil/warc-gpt/assets/625889/8ea3da4a-62a1-4ffa-a510-ef
 ---
 
 ## Installation
-WARC-GPT requires the following machine-level dependencies to be installed. 
+
+WARC-GPT requires the following machine-level dependencies to be installed.
 
 - [Python 3.11+](https://python.org)
 - [Python Poetry](https://python-poetry.org/)
@@ -54,7 +75,7 @@ poetry install
 
 ## Configuring the application
 
-This program uses environment variables to handle settings. 
+This program uses environment variables to handle settings.
 Copy `.env.example` into a new `.env` file and edit it as needed.
 
 ```bash
@@ -64,19 +85,21 @@ cp .env.example .env
 See details for individual settings in [.env.example](.env.example).
 
 **A few notes:**
-- WARC-GPT can interact with both the [OpenAI API](https://platform.openai.com/docs/introduction) and [Ollama](https://ollama.ai) for local inference. 
-  - Both can be used at the same time, but at least one is needed. 
+
+- WARC-GPT can interact with both the [OpenAI API](https://platform.openai.com/docs/introduction) and [Ollama](https://ollama.ai) for local inference.
+  - Both can be used at the same time, but at least one is needed.
   - By default, the program will try to communicate with Ollama's API at `http://localhost:11434`.
-  - It is also possible to use OpenAI's client to interact with compatible providers, such as [HuggingFace's Message API](https://huggingface.co/blog/tgi-messages-api) or [vLLM](https://docs.vllm.ai/en/latest/getting_started/quickstart.html#using-openai-completions-api-with-vllm). To do so, set values for both `OPENAI_BASE_URL` and `OPENAI_COMPATIBLE_MODEL` environment variables. 
+  - It is also possible to use OpenAI's client to interact with compatible providers, such as [HuggingFace's Message API](https://huggingface.co/blog/tgi-messages-api) or [vLLM](https://docs.vllm.ai/en/latest/getting_started/quickstart.html#using-openai-completions-api-with-vllm). To do so, set values for both `OPENAI_BASE_URL` and `OPENAI_COMPATIBLE_MODEL` environment variables.
 - Prompts can be edited directly in the configuration file.
 
 [☝️ Summary](#summary)
 
 ---
 
-## Ingesting WARCs 
+## Ingesting WARCs
 
 Place the WARC files you would to explore with WARC-GPT under `./warc` and run the following command to:
+
 - Extract text from all the `text/html` and `application/pdf` response records present in the WARC files.
 - Generate text embeddings for this text. WARC-GPT will automatically split text based on the embedding model's context window.
 - Store these embeddings in a vector store, so it can be used as WARC-GPT's knowledge base.
@@ -113,7 +136,7 @@ Once the server is started, the application's web UI should be available on `htt
 
 Unless RAG search is disabled in settings, the system will try to find relevant excerpts in its knowledge base - populated ahead of time using WARC files and the `ingest` command - to answer the questions it is asked.
 
-The interface also automatically handles a basic chat history, allowing for few-shots / chain-of-thoughts prompting. 
+The interface also automatically handles a basic chat history, allowing for few-shots / chain-of-thoughts prompting.
 
 [☝️ Summary](#summary)
 
@@ -122,9 +145,11 @@ The interface also automatically handles a basic chat history, allowing for few-
 ## Interacting with the API
 
 ### [GET] /api/models
+
 Returns a list of available models as JSON.
 
 ### [POST] /api/search
+
 Performs search against the vector store for a given `message`.
 
 <details>
@@ -139,14 +164,15 @@ Performs search against the vector store for a given `message`.
 
 - `[].warc_filename`: Filename of the WARC from which that excerpt is from.
 - `[].warc_record_content_type`: Can start with either `text/html` or `application/pdf`.
-- `[].warc_record_id`: Individual identifier of the WARC record within the WARC file. 
-- `[].warc_record_date`: Date at which the WARC record was created. 
+- `[].warc_record_id`: Individual identifier of the WARC record within the WARC file.
+- `[].warc_record_date`: Date at which the WARC record was created.
 - `[].warc_record_target_uri`: Filename of the WARC from which that excerpt is from.
 - `[].warc_record_text`: Text excerpt.
 
 </details>
 
 ### [POST] /api/complete
+
 Uses an LLM to generate a text completion.
 
 <details>
@@ -161,7 +187,6 @@ Uses an LLM to generate a text completion.
 
 </details>
 
-
 Returns RAW text stream as output.
 
 [☝️ Summary](#summary)
@@ -170,7 +195,7 @@ Returns RAW text stream as output.
 
 ## Visualizing embeddings
 
-WARC-GPT allows for generating basic interactive [T-SNE](https://en.wikipedia.org/wiki/T-distributed_stochastic_neighbor_embedding) 2D scatter plots of the vector stores it generates. 
+WARC-GPT allows for generating basic interactive [T-SNE](https://en.wikipedia.org/wiki/T-distributed_stochastic_neighbor_embedding) 2D scatter plots of the vector stores it generates.
 
 Use the `visualize` command to do so:
 
@@ -197,6 +222,7 @@ Our work is rooted in library principles including longevity, authenticity, reli
 Successful experimentation hinges on user feedback, so we encourage anyone interested in trying out our work to do so. It is all open-source and available on Github.
 
 **Please keep in mind:**
+
 - We are an innovation lab leveraging our resources and flexibility to conduct explorations for a broader field. Projects may be eventually passed off to another group, take a totally unexpected turn, or be sunset completely.
 - While we always have priorities set around security and privacy each of those topics is complex in its own right and often requires grand scale work. Experiments can sometimes initially prioritize closed-loop feedback over broader questions of security. We will always disclose when this is the case.
 - There are some experiments that are destined to become mainstays in our established platforms and tools. We will also disclose when that’s the case.
