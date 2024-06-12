@@ -53,11 +53,103 @@ class Ingester:
         self.total_records = 0
         self.total_embeddings = 0
 
-    def process_warc_record(self, record, warc_file):
+    def _extract_html(self, record_data, get_record_html_fn):
+        if not record_data["warc_record_content_type"].startswith("text/html"):
+            return
+
+        try:
+            response_as_text = get_record_html_fn()
+
+            soup = BeautifulSoup(response_as_text, "html.parser")
+
+            # Skip documents with no body tag
+            if not soup.body or len(soup.body) < 1:
+                return
+
+            all_text = soup.body.findAll(string=True)
+
+            for text in all_text:
+                if text.parent.name in ["script", "style"]:  # No <script> or <style>
+                    continue
+
+                if isinstance(text, HTMLComment):  # No HTML comments
+                    continue
+
+                record_data["warc_record_text"] += f"{text} "
+
+            record_data["warc_record_text"] = record_data["warc_record_text"].strip()
+        except Exception:
+            click.echo(
+                f"- Could not extract text from {record_data['warc_record_target_uri']}"
+            )
+            click.echo(traceback.format_exc())
+
+    def _extract_pdf(self, record_data, get_record_raw_fn=None):
+        if not record_data["warc_record_content_type"].startswith("application/pdf") or get_record_content_fn is None:
+            return
+
+        raw = io.BytesIO(get_record_raw_fn())
+        pdf = PdfReader(raw)
+
+        for page in pdf.pages:
+            record_data["warc_record_text"] += page.extract_text()
+
+    def _process_record(self, record_data, get_record_html_fn, get_record_raw_fn=None):
         chunk_prefix = os.environ["VECTOR_SEARCH_CHUNK_PREFIX"]
 
-        record_data = dict(WARC_RECORD_DATA)
+        #
+        # Extract text from text/html
+        #
+        self._extract_html(record_data, get_record_html_fn)
 
+        #
+        # Extract text from PDF
+        #
+        self._extract_pdf(record_data, get_record_raw_fn)
+
+        #
+        # Stop here if we don't have text, or text contains less than 5 words
+        #
+        if not record_data["warc_record_text"]:
+            return
+
+        if len(record_data["warc_record_text"].split()) < 5:
+            return
+
+        record_data["warc_record_text"] = record_data["warc_record_text"].strip()
+        self.total_records += 1
+
+        # Split text into chunks
+        text_chunks = self.text_splitter.split_text(record_data["warc_record_text"])
+        click.echo(f"{record_data['warc_record_target_uri']} = {len(text_chunks)} chunks.")
+
+        if not text_chunks:
+            return
+
+        # Add VECTOR_SEARCH_CHUNK_PREFIX to every chunk
+        text_chunks = [chunk_prefix + chunk for chunk in text_chunks]
+
+        # Generate embeddings and metadata for each chunk
+        (
+            documents,
+            ids,
+            metadatas,
+            embeddings
+        ) = self.chunk_objects(
+            record_data,
+            text_chunks
+        )
+        self.total_embeddings += len(embeddings)
+
+        # Store embeddings and metadata
+        self.chroma_collection.add(
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
+            ids=ids,
+        )
+
+    def process_warc_record(self, record, warc_file):
         if record.rec_type != "response":
             return
 
@@ -68,6 +160,7 @@ class Ingester:
         if not rec_headers or not http_headers:
             return
 
+        record_data = dict(WARC_RECORD_DATA)
         record_data["warc_filename"] = os.path.basename(warc_file)
         record_data["warc_record_id"] = rec_headers.get_header("WARC-Record-ID")
         record_data["warc_record_date"] = rec_headers.get_header("WARC-Date")
@@ -85,175 +178,23 @@ class Ingester:
             return
 
         # Skip records that are not HTTP 2XX
-        if http_headers.get_statuscode().startswith("2") is not True:
+        if not http_headers.get_statuscode().startswith("2"):
             return
 
-        #
-        # Extract text from text/html
-        #
-        if record_data["warc_record_content_type"].startswith("text/html"):
-            try:
-                response_as_text = record.content_stream().read().decode("utf-8")
-
-                soup = BeautifulSoup(response_as_text, "html.parser")
-
-                # Skip documents with no body tag
-                if not soup.body or len(soup.body) < 1:
-                    return
-
-                all_text = soup.body.findAll(string=True)
-
-                for text in all_text:
-                    if text.parent.name in ["script", "style"]:  # No <script> or <style>
-                        continue
-
-                    if isinstance(text, HTMLComment):  # No HTML comments
-                        continue
-
-                    record_data["warc_record_text"] += f"{text} "
-
-                record_data["warc_record_text"] = record_data["warc_record_text"].strip()
-            except Exception:
-                click.echo(
-                    f"- Could not extract text from {record_data['warc_record_target_uri']}"
-                )
-                click.echo(traceback.format_exc())
-
-        #
-        # Extract text from PDF
-        #
-        if record_data["warc_record_content_type"].startswith("application/pdf"):
-            raw = io.BytesIO(record.raw_stream.read())
-            pdf = PdfReader(raw)
-
-            for page in pdf.pages:
-                record_data["warc_record_text"] += page.extract_text()
-
-        #
-        # Stop here if we don't have text, or text contains less than 5 words
-        #
-        if not record_data["warc_record_text"]:
-            return
-
-        if len(record_data["warc_record_text"].split()) < 5:
-            return
-
-        record_data["warc_record_text"] = record_data["warc_record_text"].strip()
-        self.total_records += 1
-
-        # Split text into chunks
-        text_chunks = self.text_splitter.split_text(record_data["warc_record_text"])
-        click.echo(f"{record_data['warc_record_target_uri']} = {len(text_chunks)} chunks.")
-
-        if not text_chunks:
-            return
-
-        # Add VECTOR_SEARCH_CHUNK_PREFIX to every chunk
-        text_chunks = [chunk_prefix + chunk for chunk in text_chunks]
-
-        # Generate embeddings and metadata for each chunk
-        (
-            documents,
-            ids,
-            metadatas,
-            embeddings
-        ) = self.chunk_objects(
-            record_data,
-            text_chunks
-        )
-        self.total_embeddings += len(embeddings)
-
-        # Store embeddings and metadata
-        self.chroma_collection.add(
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids,
-        )
+        self._process_record(record_data, lambda: record.content_stream().read().decode("utf-8"), lambda: record.content_stream().read())
 
     def process_zim_entry(self, entry, zim_file, zim_date, zim_uuid):
         chunk_prefix = os.environ["VECTOR_SEARCH_CHUNK_PREFIX"]
 
         record_data = dict(WARC_RECORD_DATA)
         record_data["warc_filename"] = os.path.basename(zim_file)
-        record_data["warc_record_id"] = f'{zim_uuid}/{entry._index}' 
+        record_data["warc_record_id"] = f'{zim_uuid}/{entry._index}'
         record_data["warc_record_date"] = zim_date
         record_data["warc_record_target_uri"] = '/'.join(entry.path.split('/')[1:])
         record_data["warc_record_content_type"] = entry.get_item().mimetype
         record_data["warc_record_text"] = ""
 
-        #
-        # Extract text from text/html
-        #
-        if record_data["warc_record_content_type"].startswith("text/html"):
-            try:
-                response_as_text = bytes(entry.get_item().content).decode("UTF-8")
-
-                soup = BeautifulSoup(response_as_text, "html.parser")
-
-                # Skip documents with no body tag
-                if not soup.body or len(soup.body) < 1:
-                    return
-
-                all_text = soup.body.findAll(string=True)
-
-                for text in all_text:
-                    if text.parent.name in ["script", "style"]:  # No <script> or <style>
-                        continue
-
-                    if isinstance(text, HTMLComment):  # No HTML comments
-                        continue
-
-                    record_data["warc_record_text"] += f"{text} "
-
-                record_data["warc_record_text"] = record_data["warc_record_text"].strip()
-            except Exception:
-                click.echo(
-                    f"- Could not extract text from {record_data['warc_record_target_uri']}"
-                )
-                click.echo(traceback.format_exc())
-
-        #
-        # Stop here if we don't have text, or text contains less than 5 words
-        #
-        if not record_data["warc_record_text"]:
-            return
-
-        if len(record_data["warc_record_text"].split()) < 5:
-            return
-
-        record_data["warc_record_text"] = record_data["warc_record_text"].strip()
-        self.total_records += 1
-
-        # Split text into chunks
-        text_chunks = self.text_splitter.split_text(record_data["warc_record_text"])
-        click.echo(f"{record_data['warc_record_target_uri']} = {len(text_chunks)} chunks.")
-
-        if not text_chunks:
-            return
-
-        # Add VECTOR_SEARCH_CHUNK_PREFIX to every chunk
-        text_chunks = [chunk_prefix + chunk for chunk in text_chunks]
-
-        # Generate embeddings and metadata for each chunk
-        (
-            documents,
-            ids,
-            metadatas,
-            embeddings
-        ) = self.chunk_objects(
-            record_data,
-            text_chunks
-        )
-        self.total_embeddings += len(embeddings)
-
-        # Store embeddings and metadata
-        self.chroma_collection.add(
-            documents=documents,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            ids=ids,
-        )
+        self._process_record(record_data, lambda: bytes(entry.get_item().content).decode("UTF-8"))
 
     def chunk_objects(
         self,
@@ -393,4 +334,5 @@ def ingest(batch_size) -> None:
         for i in range(0, zim.all_entry_count):
             entry = zim._get_entry_by_id(i)
             return_tuple = ingester.process_zim_entry(entry, zim_file, zim_date, zim.uuid)
+
     click.echo(f"Total: {ingester.total_embeddings} embeddings from {ingester.total_records} HTML/PDF records.")
